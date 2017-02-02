@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="http://d3js.org/d3.v3.min.js"></script>
+    <style>
+    </style>
+    <script type="text/javascript">  
+      function draw(geo_data) {
+        "use strict";
+
+        // Dimension constants
+        var margin = 75,
+            width = 1400 - margin,
+            height = 1000 - margin;
+
+        // Create svg
+        var svg = d3.select("body")
+            .append("svg")
+            .attr("width", width + margin)
+            .attr("height", height + margin)
+            .append('g')
+            .attr('class', 'map');
+
+        // Projection type and map creation
+        var projection = d3.geo.albers();
+
+        var path = d3.geo.path().projection(projection);
+
+        var map = svg.selectAll('path')
+                     .data(geo_data.features)
+                     .enter()
+                     .append('path')
+                     .attr('d', path)
+                     .style('fill', 'rgb(9,157,217)')
+                     .style('stroke', 'black')
+                     .style('stroke-width', 0.5);
+
+        // Nested function to plot airport circles onto map
+        function plot_points(data) {
+          //Draw circles logic
+          var min_radius = 2;
+          var default_color = "black";
+          var delay_color = "red";
+
+          var bubble = svg.append('g')
+                          .attr("class", "bubble")
+                          .selectAll("circle")
+                          .data(data)
+                          .enter()
+                          .append("circle")
+                          .attr('cx', function(d) {
+                            var coord = projection([+d.long,+d.lat]);
+                            if(coord === null) {
+                              return null;
+                            } else {
+                              return coord[0];
+                            }
+                          })
+                          .attr('cy', function(d) {
+                            var coord = projection([+d.long,+d.lat]);
+                            if(coord === null) {
+                              return null;
+                            } else {
+                              return coord[1];
+                            }
+                          })
+                          .attr('r', min_radius);
+
+          function update_points(data) {
+                    
+            var nested = d3.nest()
+                           .key(function(d) {
+                             return d['iata'];
+                           })
+                           .key(function(d) {
+                             return +d['year'];
+                           })
+                           .key(function(d) {
+                             return +d['month'];
+                           })
+                           .map(data);
+
+            function update(year, month) {
+
+              // Determine maximum security delay
+              var max_delay = d3.max(data, function(d) {
+                return +d['security_delay'];
+              });
+
+              // Create radius scale
+              var radius = d3.scale.sqrt()
+                                   .domain([0,max_delay])
+                                   .range([min_radius,30]);        
+
+              // Make circle color red if security delay is non-zero, let circle size be proportional to 
+              // security delay length.
+              svg.selectAll('circle')
+                 .attr('r', function(d) {
+                    if(!(nested[d['iata']][year] === undefined) && !(nested[d['iata']][year][month] === undefined)) {
+                      return radius((+nested[d['iata']][year][month][0].security_delay) + 1);
+                    } else {
+                      return min_radius;
+                    }
+                 })
+                 .attr('fill', function(d) {
+                    if(!(nested[d['iata']][year] === undefined) && !(nested[d['iata']][year][month] === undefined)) {
+                      if(+nested[d['iata']][year][month][0].security_delay > 0) {
+                        return delay_color;
+                      } else {
+                        return default_color;
+                      }
+                    } else {
+                      return default_color;
+                    }
+                 });
+
+            };
+
+            // Loop through all time periods between November 2001 (the month the TSA was founded)
+            // and December 2008 (the last available month with data).
+            var yr_mt = []
+
+            for(var yr = 2001; yr <= 2008; yr++) {
+              if(yr == 2001) {
+                for(var mt = 11; mt <= 12; mt++) {
+                  yr_mt.push([yr,mt]);
+                }
+              } else {
+                for(var mt = 1; mt <= 12; mt++) {
+                  yr_mt.push([yr,mt]);
+                }
+              }
+            }
+
+            // Set interval, update every second.
+            var yr_mt_idx = 0;
+
+            var interval = setInterval(function() {
+              update(yr_mt[yr_mt_idx][0],yr_mt[yr_mt_idx][1]);
+              yr_mt_idx++;
+              if(yr_mt_idx >= yr_mt.length) {
+                clearInterval(interval);
+              }
+            }, 1000);
+
+          }; 
+
+          // Import the security data associated with each airport for each month from Nov 2001 to Dec 2008.
+          d3.csv("security.csv", function(d) { return d; }, update_points);
+
+        };
+
+        // Import relevant airports first which will be represented by
+        // fixed-position circles that change size and color.
+        d3.csv("relevant_airports.csv", function(d) { 
+              return d;
+        }, plot_points);
+
+      }; 
+      </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 to load the GeoJSON file
+    */
+d3.json("usa.json", draw);
+  </script>
+</body>
+</html>
